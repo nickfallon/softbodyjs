@@ -1,0 +1,249 @@
+<html>
+    <title>Swarm</title>
+    <style>
+        body {margin: 0px; overflow: hidden;
+        }
+    </style>
+    <body>
+          
+        <canvas id="canvas1"></canvas>
+      <div id="debug"></div>
+
+        <script>
+
+            //soft body dynamics
+            //Nick Fallon 2014
+
+            //vars
+            var tick = 0;
+            var mx = 0;
+            var my = 0;
+            var debug;
+            var canvas;
+            var ctx;
+            var mousedown = false;
+            var nodesize = 20;
+            var halfnodesize = Math.floor(nodesize / 2);
+            var total_nodes;
+            var selected_node = null;
+
+            //node ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            var nodes = [];
+            function Node(x, y) {
+                nodes[nodes.length] = this;                
+                this.x = x;
+                this.y = y;
+                this.velocity_x = 0;
+                this.velocity_y = 0;
+                this.connections = [];
+            }
+            Node.prototype.connect = function(n) {
+                this.connections.push(new Connection(this, n));
+            }
+            //connection ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            function Connection(n1, n2) {
+                this.node1 = n1;
+                this.node2 = n2;
+                //calc len                 
+                var dx = n2.x - n1.x;
+                var dy = n2.y - n1.y;
+                var dist = Math.sqrt(dx * dx + dy * dy);
+                this.len = dist;
+            }
+
+            //mouse ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            function mousemove_event(event) {
+                mx = event.clientX;
+                my = event.clientY;
+
+            }
+            function mousedown_event(event) {
+                mousedown = true;
+                //find selected node
+                for (var i = 0; i < total_nodes; i++) {
+                    var n = nodes[i];
+                    if ((mx >= (n.x - halfnodesize)) && (mx <= (n.x + halfnodesize))) {
+                        if ((my >= (n.y - halfnodesize)) && (my <= (n.y + nodesize))) {
+                            selected_node = n;
+                        }
+                    }
+                }
+            }
+            function mouseup_event(event) {
+                selected_node = null;
+                mousedown = false;
+            }
+
+            //start ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            window.onload = function () {
+
+                //setup canvas
+                canvas = document.getElementById("canvas1");
+                ctx = canvas.getContext("2d");
+                ctx.canvas.width = window.innerWidth;
+                ctx.canvas.height = window.innerHeight;
+                debug = document.getElementById('debug');
+
+                //nodes 
+                var scale = 120;
+                var n1 = new Node(1 * scale, 1 * scale);
+                var n2 = new Node(2 * scale, 1 * scale);
+                var n3 = new Node(2 * scale, 2 * scale);
+                var n4 = new Node(1 * scale, 2 * scale);
+                var n1a = new Node(3 * scale, 1 * scale);
+                var n2a = new Node(4 * scale, 1 * scale);
+                var n3a = new Node(4 * scale, 2 * scale);
+                var n4a = new Node(3 * scale, 2 * scale);
+
+                n1.connect(n2);
+                n2.connect(n3);
+                n3.connect(n4);
+                n4.connect(n1);
+
+                n1.connect(n3);
+                n2.connect(n4);
+
+                //make nodes 
+
+                n1a.connect(n2a);
+                n2a.connect(n3a);
+                n3a.connect(n4a);
+                n4a.connect(n1a);
+
+                n1a.connect(n3a);
+                n2a.connect(n4a);
+
+                //connector
+                n2.connect(n1a);
+                n3.connect(n4a);
+                //cross
+                n3.connect(n1a);
+                n2.connect(n4a);
+
+
+                //calc total nodes
+                total_nodes = nodes.length;
+               
+                //listen for mouse move
+                document.addEventListener('mousemove', mousemove_event, false);
+                document.addEventListener('mousedown', mousedown_event, false);
+                document.addEventListener('mouseup', mouseup_event, false);
+                //start the loop
+                setInterval('theloop()', 15);
+
+            }
+
+
+            //loop ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            function theloop() {
+                tick++;
+
+                var n; //node
+                var c; //connection
+                
+
+                debug.innerHTML = 'test';
+                //mousedown = false;
+                //clear canvas and set color
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+              
+                //animate mouse-dragging
+                if (mousedown) {
+                    if (selected_node) {
+                        selected_node.x = mx;
+                        selected_node.y = my;
+                    }
+                }
+
+
+                //solve ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+                var damp = 0.9;
+                var friction = 0.1;  //slippery = 1.5; flypaper = 0.0;
+                var spdv = 0.2;
+                //for each node
+                for (var i = 0; i < total_nodes; i++) {
+                    n = nodes[i];
+                    for (var j = 0; j < n.connections.length; j++) {
+                        //for each connection 
+                        c = n.connections[j];
+                        var n1 = c.node1;
+                        var n2 = c.node2;
+                        var dx = n1.x - n2.x;
+                        var dy = n1.y - n2.y;
+                        var a = Math.atan2(dy,dx);
+                        var dist = Math.sqrt(dx*dx + dy*dy);                        
+                        var spd = (dist - c.len) * spdv;
+
+                        //update node 1
+                        n1.velocity_x = (n1.velocity_x * damp) + (Math.cos(a - Math.PI) * spd);
+                        n1.velocity_y = (n1.velocity_y * damp) + (Math.sin(a - Math.PI) * spd);
+                        //update node 2
+                        n2.velocity_x = (n2.velocity_x * damp) + (Math.cos(a) * spd);
+                        n2.velocity_y = (n2.velocity_y * damp) + (Math.sin(a) * spd);
+                    }                    
+                }
+
+                //animate nodes according to velocity
+                var ground = 500;
+                for (var i = 0; i < total_nodes; i++) {
+                    n = nodes[i];
+
+
+                    if (n.y > ground) {
+                        //constrain to ground
+                        n.y = ground;
+                        //friction
+                        n.velocity_x = n.velocity_x * friction;
+                    }
+
+                    n.x = n.x + n.velocity_x;
+                    n.y = n.y + n.velocity_y;
+
+                    var gravity = 1.012;
+                    var w = 0.001;
+                    //gravity
+                    n.y = (n.y + w) * gravity;
+
+                }
+
+                //render ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+                ctx.strokeStyle = "#8888ff";
+
+                //render connections 
+                for (var p = 0; p < total_nodes; p++) {
+                    var nx = nodes[p];
+                    for (var j = 0; j < nx.connections.length; j++) {
+                        var c = nx.connections[j];
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(c.node1.x, c.node1.y);
+                        ctx.lineTo(c.node2.x, c.node2.y);
+                        ctx.stroke();
+                    }
+                }
+
+                //render nodes   
+                for (var i = 0; i < total_nodes; i++) {
+                    var n = nodes[i];
+                    if (n == selected_node) {
+                        ctx.fillStyle = "#FF0000";
+                    }
+                    else {
+                        ctx.fillStyle = "#0000ff";
+                    }
+                    ctx.fillRect(n.x - halfnodesize, n.y - halfnodesize, nodesize, nodesize);
+                }
+                
+            }
+            
+        </script>
+    </body>
+</html>
+

@@ -1,0 +1,344 @@
+<html>
+    <title>Swarm</title>
+    <style>
+        body {margin: 0px; overflow: hidden;
+              xbackground-image: url(deer.jpg);
+              xbackground-repeat: no-repeat;
+        }
+        #debug {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+        }
+    </style>
+    <body>
+          
+        <canvas id="canvas1"></canvas>
+      <div id="debug"></div>
+
+        <script>
+
+            //soft body dynamics
+            //Nick Fallon 2014
+
+            //vars
+            var tick = 0;
+            var mx = 0;
+            var my = 0;
+            var debug;
+            var canvas;
+            var ctx;
+            var mousedown = false;
+            var nodesize = 40;
+            var halfnodesize = Math.floor(nodesize / 2);
+            var scale = 100;
+            var selected_node = null;
+            var edit = true;
+            var previous_node = null;
+
+            //node ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            var nodes = [];
+            function Node(x, y) {
+                nodes[nodes.length] = this;                
+                this.x = x;
+                this.y = y;
+                this.xold = x;
+                this.yold = y;
+                this.velocity_x = 0;
+                this.velocity_y = 0;
+                this.connections = [];
+            }
+            Node.getNearest = function (mx, my) {
+                var near = nodes[0];
+                var nearestDist = 9999999;
+                var len = nodes.length;
+                for (var i = 0; i < len; i++) {
+                    var n = nodes[i];
+                    var dx = mx - n.x;
+                    var dy = my - n.x;
+                    var dist = (Math.sqrt((dx * dx) + (dy * dy)));
+                    if (dist < nearestDist) {
+                        nearestDist = dist;
+                        near = n;
+                    }
+                }
+                return near;
+            }
+
+            Node.prototype.connect = function (n, stiffness) {
+                var c = new Connection(this, n, stiffness);
+                this.connections.push(c);
+                return c;
+            }
+            //connection ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            function Connection(n1, n2, stiffness) {
+                this.node1 = n1;
+                this.node2 = n2;
+                //calc len                 
+                var dx = n2.x - n1.x;
+                var dy = n2.y - n1.y;
+                var dist = Math.sqrt(dx * dx + dy * dy);
+                this.len = dist;
+                this.stiffness = stiffness;
+            }
+
+            //mouse ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            function mousemove_event(event) {
+                mx = event.clientX;
+                my = event.clientY;
+
+            }
+            function mousedown_event(event) {
+                mousedown = true;
+                var bFound = false;
+                //find selected node
+                for (var i = 0; i < nodes.length; i++) {
+                    var n = nodes[i];
+                    if ((mx >= (n.x - halfnodesize)) && (mx <= (n.x + halfnodesize))) {
+                        if ((my >= (n.y - halfnodesize)) && (my <= (n.y + nodesize))) {
+                            selected_node = n;
+                            
+                            bFound = true;
+                            break;
+                        }
+                    }
+                }
+                if (!bFound && edit) {
+                    //find nearest node
+                    //var near = Node.getNearest(mx, my);
+                    var near = previous_node;
+                    //create a new node
+
+                    var n = new Node(mx, my);
+                    previous_node = n;
+                    if (near) {
+                        n.connect(near, 0.14);
+                    }
+                }
+                else {
+                    if (edit) {
+                        selected_node.connect(previous_node, 0.14);
+                        previous_node = n;
+                    }
+                }
+            }
+            function mouseup_event(event) {
+                selected_node = null;
+                mousedown = false;
+            }
+
+            function onkeydown_event(event) {
+
+                var mykeycode;
+                if (window.event) {
+                    mykeycode = window.event.keyCode;
+                }
+                else {
+                    mykeycode = event.which;
+                }
+
+                //press e
+                if ((mykeycode == 69)) {
+                    //toggle edit mode
+                    edit = !edit;
+                }
+
+            }
+
+            //start ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            window.onload = function () {
+
+                //setup canvas
+                canvas = document.getElementById("canvas1");
+                ctx = canvas.getContext("2d");
+                ctx.canvas.width = window.innerWidth;
+                ctx.canvas.height = window.innerHeight;
+                debug = document.getElementById('debug');
+
+
+                
+                //listen for mouse move
+                document.addEventListener('mousemove', mousemove_event, false);
+                document.addEventListener('mousedown', mousedown_event, false);
+                document.addEventListener('mouseup', mouseup_event, false);
+                //keys
+                document.addEventListener('keydown', onkeydown_event, false);
+
+                //start the loop
+                setInterval('theloop()', 15);
+
+            }
+
+
+            //loop ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+            function theloop() {
+                tick++;
+
+                var n; //node
+                var c; //connection
+                
+                var msg = 'soft body';
+                if (edit) msg = 'Edit mode on. Click anywhere to place nodes. | Press E for soft-body mode';
+                debug.innerHTML = msg;
+                //mousedown = false;
+                //clear canvas and set color
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+              
+                //animate mouse-dragging
+                if (mousedown) {
+                    if (selected_node) { 
+                        selected_node.velocity_x = (mx - selected_node.x);
+                        selected_node.velocity_y = (my - selected_node.y);             
+                    }
+                    if (edit && selected_node) {
+                        selected_node.x = selected_node.x + selected_node.velocity_x;
+                        selected_node.y = selected_node.y + selected_node.velocity_y;
+
+                    }
+                }
+
+
+                //solve ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+               //muscle
+                
+                //nodes[0].connections[0].len = Math.abs(Math.sin(tick * 0.02) * 100);
+                //nodes[2].connections[0].len = Math.abs(Math.sin(tick * 0.02) * 100);
+                var damp = 0.91; //soft-body damping
+                var damp2 = 1.0;
+                var vdampx = 0.05; //verlet damping
+                var vdampy = 0.05;
+                var friction = 0.15;  //slippery = 1.5; flypaper = 0.0;
+                var spdv = 0.3;
+
+                if (!edit) {
+
+
+                    //for each node
+                    for (var i = 0; i < nodes.length; i++) {
+                        n = nodes[i];
+                        //gravity
+                        n.velocity_y = (n.velocity_y + 0.5) * 1.02;
+
+                        for (var j = 0; j < n.connections.length; j++) {
+                            //for each connection 
+                            c = n.connections[j];
+                            var n1 = c.node1;
+                            var n2 = c.node2;
+                            var dx = n1.x - n2.x;
+                            var dy = n1.y - n2.y;
+                            var a = Math.atan2(dy, dx);
+                            var dist = Math.sqrt(dx * dx + dy * dy);
+                            var spd = (dist - c.len) * c.stiffness;
+
+                            //update node 1
+                            n1.velocity_x = ((n1.velocity_x * damp) + (Math.cos(a - Math.PI) * spd) * damp2);
+                            n1.velocity_y = ((n1.velocity_y * damp) + (Math.sin(a - Math.PI) * spd) * damp2);
+                            //update node 2
+                            n2.velocity_x = ((n2.velocity_x * damp) + (Math.cos(a - 0) * spd) * damp2);
+                            n2.velocity_y = ((n2.velocity_y * damp) + (Math.sin(a - 0) * spd) * damp2);
+                            /*
+                            //gravity
+                            n1.velocity_y = (n1.velocity_y + 0.5) * 1.02;
+                            n2.velocity_y = (n2.velocity_y + 0.5) * 1.02;
+                            */
+
+                            //verlet
+                            n1.velocity_x = n1.velocity_x + ((n1.x - n1.xold) * vdampx);
+                            n2.velocity_x = n2.velocity_x + ((n2.x - n2.xold) * vdampx);
+                            n1.velocity_y = n1.velocity_y + ((n1.y - n1.yold) * vdampy);
+                            n2.velocity_y = n2.velocity_y + ((n2.y - n2.yold) * vdampy);
+
+
+                            //wind
+                            //n1.velocity_x = n1.velocity_x + (Math.random() * 0.3);
+                            //n2.velocity_x = n2.velocity_x + (Math.random() * 0.3);
+
+                        }
+                    }
+
+              
+
+
+                    //animate nodes according to velocity
+                    var ground = 500;
+                    for (var i = 0; i < nodes.length; i++) {
+                        n = nodes[i];
+                        //ground
+                        if (n.y > ground) {
+                            //constrain 
+                            n.y = ground;
+                            //friction
+                            n.velocity_x = n.velocity_x * friction;
+                            n.velocity_y = n.velocity_y * 0.9;
+                        }
+                        //wall
+                        if (n.x < 0) {
+                            n.x = 0;
+                            n.velocity_x = n.velocity_x * -1;
+                            n.velocity_y = n.velocity_y * 0.7;
+                        }
+                        //wall
+                        if (n.x > ctx.canvas.width) {
+                            n.x = ctx.canvas.width;
+                            n.velocity_x = n.velocity_x * -1;
+                            n.velocity_y = n.velocity_y * 0.7;
+                        }
+                        //store old position
+                        n.xold = n.x;
+                        n.yold = n.y;
+                        //update posn
+                        n.x = n.x + n.velocity_x;
+                        n.y = n.y + n.velocity_y;
+                    
+                    }
+
+                //not edit mode
+                }
+
+
+                //render ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+                
+                //render connections 
+                for (var p = 0; p < nodes.length; p++) {
+                    var nx = nodes[p];
+                    for (var j = 0; j < nx.connections.length; j++) {
+                        var c = nx.connections[j];
+                        ctx.lineWidth = 15;
+                        ctx.beginPath();
+                        ctx.moveTo(c.node1.x, c.node1.y);
+                        ctx.lineTo(c.node2.x, c.node2.y);                        
+                        ctx.strokeStyle = "#ff7f00";
+                        ctx.stroke();
+                    }
+                }
+
+                //render nodes   
+                for (var i = 0; i < nodes.length; i++) {
+                    var n = nodes[i];
+                    if (n == selected_node) {
+                        ctx.fillStyle = "#FF0000";
+                    }
+                    else {
+                        ctx.fillStyle = "#0000ff";
+                    }
+                    ctx.fillRect(n.x - halfnodesize, n.y - halfnodesize, nodesize, nodesize);
+                }
+                ctx.fillStyle = "#0000ff";
+                //render ground
+                ctx.fillRect(0, ground + halfnodesize, ctx.canvas.width, 1);
+                
+            }
+
+            
+        </script>
+    </body>
+</html>
+
